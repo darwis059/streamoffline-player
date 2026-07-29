@@ -1,7 +1,7 @@
 import requests
 
 video_url = "https://www.youtube.com/watch?v=722d3I_hUB4"
-api_url = "http://100.123.29.96:8000/api/formats"
+api_url = "http://10.38.2.4:8000/api/formats"
 # Use this for local testing:
 # api_url = "http://127.0.0.1:8000/api/formats"
 

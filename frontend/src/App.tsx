@@ -1,121 +1,142 @@
 import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { saveToOPFS } from '@/lib/storage'
+import { db } from '@/lib/db'
+import { Download, Search, CheckCircle, Loader2 } from 'lucide-react'
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [url, setUrl] = useState('')
+  const [status, setStatus] = useState<'idle' | 'downloading' | 'success' | 'error'>('idle')
+  const [errorMessage, setErrorMessage] = useState('')
+  const [downloadedTitle, setDownloadedTitle] = useState('')
+
+  const handleDownload = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!url) return
+
+    setStatus('downloading')
+    setErrorMessage('')
+
+    try {
+      const response = await fetch('/api/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      })
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        throw new Error(errData.detail || 'Download failed on the server.')
+      }
+
+      // Extract filename from Content-Disposition header if available
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let filename = `track_${Date.now()}.mp3`
+      let title = 'Unknown Track'
+
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="(.+?)"/)
+        if (filenameMatch && filenameMatch.length === 2) {
+          filename = filenameMatch[1]
+          title = filename.replace('.mp3', '')
+        }
+      }
+
+      // We MUST have a response body to stream to OPFS
+      if (!response.body) {
+        throw new Error('No response body returned from server.')
+      }
+
+      // Stream the response directly to OPFS
+      await saveToOPFS(response.body, filename)
+
+      // Save metadata to IndexedDB via Dexie
+      await db.tracks.add({
+        title,
+        originalUrl: url,
+        opfsFileName: filename,
+        addedAt: new Date()
+      })
+
+      setDownloadedTitle(title)
+      setStatus('success')
+      setUrl('')
+      
+      // Reset success message after 5 seconds
+      setTimeout(() => setStatus('idle'), 5000)
+
+    } catch (err: any) {
+      console.error('Download error:', err)
+      setErrorMessage(err.message || 'An unexpected error occurred.')
+      setStatus('error')
+    }
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="min-h-screen bg-background flex flex-col items-center p-4 pt-20">
+      <div className="w-full max-w-md space-y-8">
+        
+        <div className="text-center space-y-2">
+          <h1 className="text-4xl font-bold tracking-tight text-primary">StreamOffline</h1>
+          <p className="text-muted-foreground">Download and listen to your music anywhere.</p>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
 
-      <div className="ticks"></div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Add New Track</CardTitle>
+            <CardDescription>Paste a YouTube URL to download it to your offline library.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleDownload} className="space-y-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input 
+                  placeholder="https://youtube.com/watch?v=..." 
+                  className="pl-9"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  disabled={status === 'downloading'}
+                  required
+                />
+              </div>
+              <Button 
+                type="submit" 
+                className="w-full" 
+                disabled={status === 'downloading' || !url}
+              >
+                {status === 'downloading' ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Downloading...
+                  </>
+                ) : (
+                  <>
+                    <Download className="mr-2 h-4 w-4" />
+                    Download to OPFS
+                  </>
+                )}
+              </Button>
+            </form>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+            {status === 'error' && (
+              <div className="mt-4 p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/20">
+                {errorMessage}
+              </div>
+            )}
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+            {status === 'success' && (
+              <div className="mt-4 p-3 bg-green-500/10 text-green-600 dark:text-green-400 text-sm rounded-md border border-green-500/20 flex items-center">
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Saved "{downloadedTitle}" to library!
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+      </div>
+    </div>
   )
 }
 
