@@ -176,7 +176,10 @@ if os.path.isdir(STATIC_DIR):
     
     @app.get("/{full_path:path}")
     async def serve_react_app(full_path: str):
-        # Serve index.html for all other routes to let React Router handle routing
+        # Serve actual file if it exists (e.g. /favicon.svg), else fallback to index.html for React Router
+        file_path = os.path.join(STATIC_DIR, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
         return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 else:
     @app.get("/{full_path:path}")
