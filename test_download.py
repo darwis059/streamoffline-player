@@ -3,7 +3,7 @@ import sys
 import time
 
 video_url = "https://www.youtube.com/watch?v=722d3I_hUB4"  # Me at the zoo (very short video)
-api_url = "https://music.darwis.id/api/download"
+api_url = "http://100.123.29.96:8000/api/download"
 
 print(f"Requesting download for: {video_url}...")
 # Note: we might need to wait for the server to start before pinging

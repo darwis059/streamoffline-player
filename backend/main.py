@@ -27,12 +27,12 @@ async def download_audio(request: DownloadRequest):
     temp_dir = tempfile.mkdtemp()
     
     cookie_path = os.environ.get('YT_DLP_COOKIES', '/app/cookies.txt')
+    is_verbose = os.environ.get('YT_DLP_VERBOSE', 'false').lower() == 'true'
     
     # yt-dlp configuration to download best audio, convert to 192kbps MP3,
     # apply loudnorm filter, and embed ID3 tags/thumbnail
     ydl_opts = {
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
-        'js_runtimes': {'node': {}},
         'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
         'postprocessors': [
             {
@@ -53,9 +53,12 @@ async def download_audio(request: DownloadRequest):
             '-af', 'loudnorm'
         ],
         'writethumbnail': True,
-        'quiet': True,
-        'no_warnings': True,
+        'quiet': not is_verbose,
+        'no_warnings': not is_verbose,
     }
+
+    if is_verbose:
+        ydl_opts['verbose'] = True
 
     if os.path.exists(cookie_path):
         ydl_opts['cookiefile'] = cookie_path
@@ -98,13 +101,16 @@ async def get_formats(request: DownloadRequest):
         raise HTTPException(status_code=400, detail="URL is required")
 
     cookie_path = os.environ.get('YT_DLP_COOKIES', '/app/cookies.txt')
+    is_verbose = os.environ.get('YT_DLP_VERBOSE', 'false').lower() == 'true'
     
     ydl_opts = {
-        'js_runtimes': {'node': {}},
-        'quiet': True,
-        'no_warnings': True,
+        'quiet': not is_verbose,
+        'no_warnings': not is_verbose,
         'ignoreerrors': True,
     }
+
+    if is_verbose:
+        ydl_opts['verbose'] = True
 
     # Debug info to pass back to the client
     cookie_status = "Not Found"
