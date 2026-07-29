@@ -4,13 +4,17 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { saveToOPFS, deleteFromOPFS } from '@/lib/storage'
 import { db } from '@/lib/db'
-import { Download, Search, CheckCircle, Loader2, Music, Trash2 } from 'lucide-react'
+import { Download, Search, CheckCircle, Loader2, Music, Trash2, Play } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { AudioPlayer } from '@/components/AudioPlayer'
 
 function App() {
   const [url, setUrl] = useState('')
   const [status, setStatus] = useState<'idle' | 'downloading' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState('')
+  
+  // Player state
+  const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(null)
   
   // Reactively fetch all downloaded tracks from Dexie IndexedDB
   const tracks = useLiveQuery(() => db.tracks.orderBy('addedAt').reverse().toArray())
@@ -23,9 +27,6 @@ function App() {
     setErrorMessage('')
 
     try {
-      // Allow dev server to talk to local backend on port 8000 if needed
-      // (Assuming the user runs Vite on 5173 and backend on 8000 for testing, 
-      // or just /api/download if running behind proxy/built)
       const apiEndpoint = import.meta.env.DEV ? 'http://127.0.0.1:8000/api/download' : '/api/download'
       
       const response = await fetch(apiEndpoint, {
@@ -39,20 +40,16 @@ function App() {
         throw new Error(errData.detail || 'Download failed on the server.')
       }
 
-      // 1. Try X-Track-Title first (our custom header)
       let title = response.headers.get('X-Track-Title')
       let filename = title ? `${title}.mp3` : `track_${Date.now()}.mp3`
 
-      // 2. Fallback to Content-Disposition if X-Track-Title is missing
       if (!title) {
         const contentDisposition = response.headers.get('Content-Disposition')
         if (contentDisposition) {
           if (contentDisposition.includes('filename*=')) {
-            // Parses: filename*=utf-8''My%20Song.mp3
             filename = decodeURIComponent(contentDisposition.split("filename*=utf-8''")[1].split(';')[0])
             title = filename.replace('.mp3', '')
           } else {
-            // Parses: filename="My Song.mp3"
             const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/)
             if (filenameMatch && filenameMatch.length > 1) {
               filename = filenameMatch[1]
@@ -68,10 +65,8 @@ function App() {
         throw new Error('No response body returned from server.')
       }
 
-      // Stream to OPFS
       await saveToOPFS(response.body, filename)
 
-      // Save metadata
       await db.tracks.add({
         title,
         originalUrl: url,
@@ -92,17 +87,34 @@ function App() {
 
   const handleDelete = async (id: number, filename: string) => {
     try {
-      // Delete from IndexedDB
       await db.tracks.delete(id)
-      // Delete the actual MP3 file from OPFS
       await deleteFromOPFS(filename)
+      // Reset player if currently playing track was deleted
+      if (currentTrackIndex !== null && tracks && tracks[currentTrackIndex]?.id === id) {
+        setCurrentTrackIndex(null)
+      }
     } catch (e) {
       console.error('Failed to delete track', e)
     }
   }
 
+  // Player controls
+  const handleNext = () => {
+    if (tracks && currentTrackIndex !== null) {
+      const nextIndex = (currentTrackIndex + 1) % tracks.length
+      setCurrentTrackIndex(nextIndex)
+    }
+  }
+
+  const handlePrevious = () => {
+    if (tracks && currentTrackIndex !== null) {
+      const prevIndex = (currentTrackIndex - 1 + tracks.length) % tracks.length
+      setCurrentTrackIndex(prevIndex)
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center p-4 pt-10 space-y-8 pb-20">
+    <div className={`min-h-screen bg-background flex flex-col items-center p-4 pt-10 space-y-8 ${currentTrackIndex !== null ? 'pb-40' : 'pb-20'}`}>
       <div className="w-full max-w-md space-y-8">
         
         <div className="text-center space-y-2">
@@ -174,21 +186,32 @@ function App() {
             </div>
           ) : (
             <div className="space-y-2">
-              {tracks.map(track => (
-                <div key={track.id} className="flex items-center justify-between p-3 rounded-lg border bg-card text-card-foreground shadow-sm">
+              {tracks.map((track, index) => (
+                <div key={track.id} className="flex items-center justify-between p-3 rounded-lg border bg-card text-card-foreground shadow-sm group">
                   <div className="flex items-center space-x-3 overflow-hidden">
-                    <div className="bg-primary/10 p-2 rounded-full flex-shrink-0">
-                      <Music className="h-4 w-4 text-primary" />
-                    </div>
-                    <div className="truncate">
-                      <p className="text-sm font-medium truncate">{track.title}</p>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="bg-primary/10 hover:bg-primary/20 p-2 rounded-full flex-shrink-0"
+                      onClick={() => setCurrentTrackIndex(index)}
+                    >
+                      {currentTrackIndex === index ? (
+                        <Music className="h-4 w-4 text-primary animate-pulse" />
+                      ) : (
+                        <Play className="h-4 w-4 text-primary" />
+                      )}
+                    </Button>
+                    <div className="truncate cursor-pointer" onClick={() => setCurrentTrackIndex(index)}>
+                      <p className={`text-sm font-medium truncate ${currentTrackIndex === index ? 'text-primary' : ''}`}>
+                        {track.title}
+                      </p>
                       <p className="text-xs text-muted-foreground">{new Date(track.addedAt).toLocaleDateString()}</p>
                     </div>
                   </div>
                   <Button 
                     variant="ghost" 
                     size="icon" 
-                    className="text-muted-foreground hover:text-destructive"
+                    className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={() => track.id && handleDelete(track.id, track.opfsFileName)}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -200,6 +223,15 @@ function App() {
         </div>
 
       </div>
+
+      {/* Global Audio Player */}
+      {currentTrackIndex !== null && tracks && tracks[currentTrackIndex] && (
+        <AudioPlayer 
+          track={tracks[currentTrackIndex]} 
+          onNext={handleNext}
+          onPrevious={handlePrevious}
+        />
+      )}
     </div>
   )
 }
