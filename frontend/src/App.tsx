@@ -114,7 +114,7 @@ function App() {
   }
 
   return (
-    <div className={`min-h-screen bg-background flex flex-col items-center p-4 pt-10 space-y-8 ${currentTrackIndex !== null ? 'pb-40' : 'pb-20'}`}>
+    <div className={`min-h-screen bg-background flex flex-col items-center p-4 pt-10 space-y-8 ${currentTrackIndex !== null ? 'pb-[40vh]' : 'pb-20'}`}>
       <div className="w-full max-w-md space-y-8">
 
         <div className="text-center space-y-2">
@@ -212,7 +212,11 @@ function App() {
                     variant="ghost"
                     size="icon"
                     className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => track.id && handleDelete(track.id, track.opfsFileName)}
+                    onClick={() => {
+                      if (window.confirm(`Are you sure you want to delete "${track.title}"?`)) {
+                        track.id && handleDelete(track.id, track.opfsFileName)
+                      }
+                    }}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>

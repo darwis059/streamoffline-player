@@ -18,8 +18,7 @@ export function AudioPlayer({ track, onNext, onPrevious }: AudioPlayerProps) {
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
-  const [isExpanded, setIsExpanded] = useState(false)
-
+  const [lyricsState, setLyricsState] = useState<'hidden' | 'mini' | 'expanded'>('mini')
   // 1. Manage the OPFS Blob URL lifecycle
   useEffect(() => {
     let active = true
@@ -55,6 +54,20 @@ export function AudioPlayer({ track, onNext, onPrevious }: AudioPlayerProps) {
       }
     }
   }, [audioUrl, isPlaying])
+
+  useEffect(() => {
+    // Reset play state when track changes
+    setIsPlaying(true)
+    if (audioRef.current) {
+      audioRef.current.play().catch(e => console.error("Playback failed", e))
+    }
+  }, [track])
+
+  const handleToggleLyrics = () => {
+    if (lyricsState === 'hidden') setLyricsState('mini')
+    else if (lyricsState === 'mini') setLyricsState('expanded')
+    else setLyricsState('hidden')
+  }
 
   // 3. Media Session API (iOS Lock Screen Controls)
   useEffect(() => {
@@ -134,7 +147,7 @@ export function AudioPlayer({ track, onNext, onPrevious }: AudioPlayerProps) {
   return (
     <div 
       className={`fixed left-0 right-0 bg-background border-t shadow-[0_-10px_40px_rgba(0,0,0,0.1)] transition-all duration-300 z-50 flex flex-col ${
-        isExpanded ? 'top-0 bottom-0' : 'bottom-0 pb-safe'
+        lyricsState === 'expanded' ? 'top-0 bottom-0' : 'bottom-0 pb-safe'
       }`}
     >
       {/* Hidden Audio Element */}
@@ -150,26 +163,30 @@ export function AudioPlayer({ track, onNext, onPrevious }: AudioPlayerProps) {
         />
       )}
 
-      {/* Expanded View Content (Lyrics) */}
-      {isExpanded && (
-        <div className="flex-1 flex flex-col min-h-0 relative bg-gradient-to-b from-background to-muted/20">
-          <LyricsView track={track} currentTime={currentTime} />
-        </div>
-      )}
+      {/* Lyrics View */}
+      <div className={`flex flex-col relative w-full transition-all duration-300 ${
+        lyricsState === 'hidden' ? 'h-0 opacity-0 overflow-hidden pointer-events-none' : 
+        lyricsState === 'expanded' ? 'flex-1 min-h-0 bg-gradient-to-b from-background to-muted/20 opacity-100' : 
+        'h-[25vh] max-w-2xl mx-auto overflow-hidden opacity-100 [mask-image:linear-gradient(to_bottom,transparent,black_20%,black_80%,transparent)] [-webkit-mask-image:linear-gradient(to_bottom,transparent,black_20%,black_80%,transparent)]'
+      }`}>
+        <LyricsView track={track} currentTime={currentTime} isExpanded={lyricsState === 'expanded'} />
+      </div>
 
       {/* Player Controls (Always visible) */}
-      <div className={`w-full max-w-2xl mx-auto p-4 flex flex-col space-y-3 ${isExpanded ? 'bg-background/80 backdrop-blur-xl border-t' : ''}`}>
+      <div className={`w-full max-w-2xl mx-auto p-4 flex flex-col space-y-3 ${lyricsState === 'expanded' ? 'bg-background/80 backdrop-blur-xl border-t' : ''}`}>
         
         <div className="flex justify-between items-center px-1">
-          <div className="overflow-hidden flex-1 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-            <h3 className={`font-semibold truncate ${isExpanded ? 'text-lg text-primary' : 'text-sm'}`}>{track.title}</h3>
+          <div className="overflow-hidden flex-1 cursor-pointer" onClick={handleToggleLyrics}>
+            <h3 className={`font-semibold truncate ${lyricsState === 'expanded' ? 'text-lg text-primary' : 'text-sm'}`}>{track.title}</h3>
             <p className="text-xs text-muted-foreground">StreamOffline</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={() => setIsExpanded(!isExpanded)}>
-            {isExpanded ? (
+          <Button variant="ghost" size="icon" onClick={handleToggleLyrics}>
+            {lyricsState === 'expanded' ? (
               <ChevronDown className="h-5 w-5 text-muted-foreground" />
-            ) : (
+            ) : lyricsState === 'mini' ? (
               <ChevronUp className="h-5 w-5 text-muted-foreground" />
+            ) : (
+              <ChevronUp className="h-5 w-5 text-muted-foreground opacity-50" />
             )}
           </Button>
         </div>

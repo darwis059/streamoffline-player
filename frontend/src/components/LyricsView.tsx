@@ -7,9 +7,10 @@ import { db, type Track } from '@/lib/db'
 interface LyricsViewProps {
   track: Track
   currentTime: number
+  isExpanded?: boolean
 }
 
-export function LyricsView({ track, currentTime }: LyricsViewProps) {
+export function LyricsView({ track, currentTime, isExpanded = true }: LyricsViewProps) {
   const [lyrics, setLyrics] = useState<LyricLine[]>([])
   const [lyricOptions, setLyricOptions] = useState<any[]>([])
   const [activeOptionIndex, setActiveOptionIndex] = useState(0)
@@ -20,7 +21,7 @@ export function LyricsView({ track, currentTime }: LyricsViewProps) {
   
   const activeLineRef = useRef<HTMLParagraphElement>(null)
 
-  // 1. Fetch Lyrics when Track Title changes
+  // 1. Fetch Lyrics when Track changes
   useEffect(() => {
     let active = true
     setStatus('loading')
@@ -31,6 +32,28 @@ export function LyricsView({ track, currentTime }: LyricsViewProps) {
 
     const fetchLyrics = async () => {
       try {
+        let loadedFromId = false;
+
+        // 1. First fetch directly by saved ID if it exists (very fast)
+        if (track.lyricId) {
+          try {
+            const getRes = await fetch(`https://lrclib.net/api/get/${track.lyricId}`)
+            if (getRes.ok) {
+              const data = await getRes.json()
+              if (active && data.syncedLyrics) {
+                setLyricOptions([data]) // Temporary array with 1 item so UI doesn't break
+                setActiveOptionIndex(0)
+                setLyrics(parseLRC(data.syncedLyrics))
+                setStatus('found')
+                loadedFromId = true
+              }
+            }
+          } catch (e) {
+            console.error("Failed to fetch by ID", e)
+          }
+        }
+
+        // 2. Fetch search results to populate alternatives
         const cleanTitle = track.title
           .replace(/\[.*?\]|\(.*?\)/g, '')
           .replace(/official video|lyrics|audio/gi, '')
@@ -44,33 +67,44 @@ export function LyricsView({ track, currentTime }: LyricsViewProps) {
         if (active && data.length > 0) {
           const matches = data.filter((item: any) => item.syncedLyrics)
           if (matches.length > 0) {
-            setLyricOptions(matches)
             
-            // Find preferred ID if it exists, otherwise use 0
-            const preferredIdx = track.lyricId ? matches.findIndex((m: any) => m.id === track.lyricId) : 0
-            const initialIdx = preferredIdx !== -1 ? preferredIdx : 0
-            
-            setActiveOptionIndex(initialIdx)
-            setLyrics(parseLRC(matches[initialIdx].syncedLyrics))
-            setStatus('found')
-          } else {
+            if (loadedFromId) {
+              // We already loaded the lyrics, just update the options array so pagination works
+              const savedItemIdx = matches.findIndex((m: any) => m.id === track.lyricId)
+              
+              if (savedItemIdx !== -1) {
+                setLyricOptions(matches)
+                setActiveOptionIndex(savedItemIdx)
+              } else {
+                // If the saved ID somehow isn't in search results, prepend it
+                setLyricOptions((prev) => [...prev, ...matches])
+                setActiveOptionIndex(0)
+              }
+            } else {
+              // No saved ID, load the first search result
+              setLyricOptions(matches)
+              setActiveOptionIndex(0)
+              setLyrics(parseLRC(matches[0].syncedLyrics))
+              setStatus('found')
+            }
+          } else if (!loadedFromId) {
             setStatus('not_found')
           }
-        } else if (active) {
+        } else if (active && !loadedFromId) {
           setStatus('not_found')
         }
       } catch (e) {
         console.error('Failed to fetch lyrics:', e)
-        if (active) setStatus('error')
+        if (active && status === 'loading') setStatus('error')
       }
     }
 
-    const timeout = setTimeout(fetchLyrics, 300)
+    const timeout = setTimeout(fetchLyrics, 100)
     return () => {
       active = false
       clearTimeout(timeout)
     }
-  }, [track.title, track.lyricId, track.lyricsOffset])
+  }, [track.id, track.title])
 
   // 2. Find the active line index (accounting for our custom offset)
   let activeIndex = -1
@@ -92,10 +126,10 @@ export function LyricsView({ track, currentTime }: LyricsViewProps) {
         block: 'center',
       })
     }
-  }, [activeIndex, isSyncMode])
+  }, [activeIndex, isSyncMode, isExpanded])
 
   const handleLineClick = async (line: LyricLine) => {
-    if (!isSyncMode || !track.id) return
+    if (!isSyncMode || !track.id || !isExpanded) return
 
     // Calculate the new offset required so that this line's time equals currentTime
     const newOffset = currentTime - line.time
@@ -132,8 +166,8 @@ export function LyricsView({ track, currentTime }: LyricsViewProps) {
   if (status === 'loading') {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-muted-foreground">
-        <Loader2 className="h-8 w-8 animate-spin mb-4" />
-        <p>Searching for lyrics...</p>
+        <Loader2 className="h-6 w-6 md:h-8 md:w-8 animate-spin mb-4" />
+        <p className={isExpanded ? '' : 'text-sm'}>Searching for lyrics...</p>
       </div>
     )
   }
@@ -141,57 +175,59 @@ export function LyricsView({ track, currentTime }: LyricsViewProps) {
   if (status === 'not_found' || status === 'error') {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-muted-foreground">
-        <Mic2 className="h-12 w-12 mb-4 opacity-50" />
-        <p>No synced lyrics found for this track.</p>
+        {isExpanded && <Mic2 className="h-12 w-12 mb-4 opacity-50" />}
+        <p className={isExpanded ? '' : 'text-sm'}>No synced lyrics found for this track.</p>
       </div>
     )
   }
 
   return (
-    <div className="flex-1 overflow-y-auto w-full px-6 py-24 scroll-smooth relative">
+    <div className={`w-full relative scroll-smooth ${isExpanded ? 'flex-1 overflow-y-auto px-6 py-24' : 'h-full overflow-hidden px-4 py-[10vh] pointer-events-none'}`}>
       
       {/* Top Controls */}
-      <div className="fixed top-4 right-4 z-20 flex items-center space-x-2">
-        
-        {lyricOptions.length > 1 && (
-          <div className="flex items-center space-x-1 bg-background/50 backdrop-blur-md rounded-full shadow-md p-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-full"
-              onClick={() => handleOptionChange((activeOptionIndex - 1 + lyricOptions.length) % lyricOptions.length)}
-              title="Previous Lyric Version"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-xs font-medium text-muted-foreground w-8 text-center tabular-nums">
-              {activeOptionIndex + 1}/{lyricOptions.length}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-full"
-              onClick={() => handleOptionChange((activeOptionIndex + 1) % lyricOptions.length)}
-              title="Next Lyric Version"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
+      {isExpanded && (
+        <div className="fixed top-4 right-4 z-20 flex items-center space-x-2">
+          
+          {lyricOptions.length > 1 && (
+            <div className="flex items-center space-x-1 bg-background/50 backdrop-blur-md rounded-full shadow-md p-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-full"
+                onClick={() => handleOptionChange((activeOptionIndex - 1 + lyricOptions.length) % lyricOptions.length)}
+                title="Previous Lyric Version"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-xs font-medium text-muted-foreground w-8 text-center tabular-nums">
+                {activeOptionIndex + 1}/{lyricOptions.length}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-full"
+                onClick={() => handleOptionChange((activeOptionIndex + 1) % lyricOptions.length)}
+                title="Next Lyric Version"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
 
-        <Button
-          variant={isSyncMode ? 'default' : 'secondary'}
-          size="sm"
-          onClick={() => setIsSyncMode(!isSyncMode)}
-          className={`rounded-full shadow-md backdrop-blur-md transition-all ${isSyncMode ? 'bg-primary text-primary-foreground' : 'bg-background/50 hover:bg-background/80'}`}
-        >
-          {isSyncMode ? <Check className="h-4 w-4 mr-2" /> : <Clock className="h-4 w-4 mr-2" />}
-          {isSyncMode ? 'Cancel Sync' : 'Sync Lyrics'}
-        </Button>
-      </div>
+          <Button
+            variant={isSyncMode ? 'default' : 'secondary'}
+            size="sm"
+            onClick={() => setIsSyncMode(!isSyncMode)}
+            className={`rounded-full shadow-md backdrop-blur-md transition-all ${isSyncMode ? 'bg-primary text-primary-foreground' : 'bg-background/50 hover:bg-background/80'}`}
+          >
+            {isSyncMode ? <Check className="h-4 w-4 mr-2" /> : <Clock className="h-4 w-4 mr-2" />}
+            {isSyncMode ? 'Cancel Sync' : 'Sync Lyrics'}
+          </Button>
+        </div>
+      )}
 
-      <div className="max-w-2xl mx-auto space-y-8 pb-32 pt-8">
-        {isSyncMode && (
+      <div className={`max-w-2xl mx-auto space-y-4 md:space-y-8 ${isExpanded ? 'pb-32 pt-8' : ''}`}>
+        {isSyncMode && isExpanded && (
           <div className="text-center pb-4 text-sm font-medium text-primary animate-pulse">
             Tap the line that is currently playing to sync.
           </div>
@@ -206,19 +242,21 @@ export function LyricsView({ track, currentTime }: LyricsViewProps) {
               key={`${index}-${line.time}`}
               ref={isActive ? activeLineRef : null}
               onClick={() => handleLineClick(line)}
-              className={`text-center text-2xl md:text-3xl font-bold transition-all duration-300 ${
-                isSyncMode ? 'cursor-pointer hover:text-primary hover:scale-105 opacity-70' : ''
+              className={`text-center font-bold transition-all duration-300 ${
+                isExpanded ? 'text-2xl md:text-3xl' : 'text-lg md:text-xl'
               } ${
-                !isSyncMode && isActive 
+                isSyncMode && isExpanded ? 'cursor-pointer hover:text-primary hover:scale-105 opacity-70' : ''
+              } ${
+                (!isSyncMode || !isExpanded) && isActive 
                   ? 'text-primary scale-105' 
-                  : !isSyncMode && isPast 
+                  : (!isSyncMode || !isExpanded) && isPast 
                     ? 'text-muted-foreground/60 scale-100'
-                    : !isSyncMode
+                    : (!isSyncMode || !isExpanded)
                       ? 'text-muted-foreground/40 scale-100'
                       : ''
               }`}
             >
-              {line.text || '...'}
+              {line.text || (isExpanded ? '...' : '')}
             </p>
           )
         })}
