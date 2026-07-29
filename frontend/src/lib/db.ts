@@ -6,6 +6,8 @@ export interface Track {
   originalUrl: string;
   opfsFileName: string;
   addedAt: Date;
+  lyricsOffset?: number;
+  lyricId?: number;
 }
 
 export class StreamOfflineDB extends Dexie {

@@ -153,12 +153,7 @@ export function AudioPlayer({ track, onNext, onPrevious }: AudioPlayerProps) {
       {/* Expanded View Content (Lyrics) */}
       {isExpanded && (
         <div className="flex-1 flex flex-col min-h-0 relative bg-gradient-to-b from-background to-muted/20">
-          <div className="absolute top-4 left-4 z-10">
-            <Button variant="ghost" size="icon" onClick={() => setIsExpanded(false)} className="rounded-full bg-background/50 backdrop-blur-md">
-              <ChevronDown className="h-6 w-6" />
-            </Button>
-          </div>
-          <LyricsView trackTitle={track.title} currentTime={currentTime} />
+          <LyricsView track={track} currentTime={currentTime} />
         </div>
       )}
 
@@ -170,11 +165,13 @@ export function AudioPlayer({ track, onNext, onPrevious }: AudioPlayerProps) {
             <h3 className={`font-semibold truncate ${isExpanded ? 'text-lg text-primary' : 'text-sm'}`}>{track.title}</h3>
             <p className="text-xs text-muted-foreground">StreamOffline</p>
           </div>
-          {!isExpanded && (
-            <Button variant="ghost" size="icon" onClick={() => setIsExpanded(true)}>
+          <Button variant="ghost" size="icon" onClick={() => setIsExpanded(!isExpanded)}>
+            {isExpanded ? (
+              <ChevronDown className="h-5 w-5 text-muted-foreground" />
+            ) : (
               <ChevronUp className="h-5 w-5 text-muted-foreground" />
-            </Button>
-          )}
+            )}
+          </Button>
         </div>
 
         {/* Progress Bar */}

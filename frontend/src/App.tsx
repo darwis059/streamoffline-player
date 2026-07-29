@@ -12,10 +12,10 @@ function App() {
   const [url, setUrl] = useState('')
   const [status, setStatus] = useState<'idle' | 'downloading' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState('')
-  
+
   // Player state
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(null)
-  
+
   // Reactively fetch all downloaded tracks from Dexie IndexedDB
   const tracks = useLiveQuery(() => db.tracks.orderBy('addedAt').reverse().toArray())
 
@@ -27,8 +27,8 @@ function App() {
     setErrorMessage('')
 
     try {
-      const apiEndpoint = import.meta.env.DEV ? 'http://127.0.0.1:8000/api/download' : '/api/download'
-      
+      const apiEndpoint = import.meta.env.DEV ? 'http://127.0.0.1:8001/api/download' : '/api/download'
+
       const response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -58,7 +58,7 @@ function App() {
           }
         }
       }
-      
+
       if (!title) title = 'Unknown Track'
 
       if (!response.body) {
@@ -116,10 +116,10 @@ function App() {
   return (
     <div className={`min-h-screen bg-background flex flex-col items-center p-4 pt-10 space-y-8 ${currentTrackIndex !== null ? 'pb-40' : 'pb-20'}`}>
       <div className="w-full max-w-md space-y-8">
-        
+
         <div className="text-center space-y-2">
           <h1 className="text-4xl font-bold tracking-tight text-primary">StreamOffline</h1>
-          <p className="text-muted-foreground">Download and listen to your music anywhere.</p>
+          <p className="text-muted-foreground">Built with ❤️ for my Erika.</p>
         </div>
 
         <Card>
@@ -131,8 +131,8 @@ function App() {
             <form onSubmit={handleDownload} className="space-y-4">
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  placeholder="https://youtube.com/watch?v=..." 
+                <Input
+                  placeholder="https://youtube.com/watch?v=..."
                   className="pl-9"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
@@ -140,20 +140,20 @@ function App() {
                   required
                 />
               </div>
-              <Button 
-                type="submit" 
-                className="w-full" 
+              <Button
+                type="submit"
+                className="w-full"
                 disabled={status === 'downloading' || !url}
               >
                 {status === 'downloading' ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Downloading and Normalizing...
+                    Downloading ...
                   </>
                 ) : (
                   <>
                     <Download className="mr-2 h-4 w-4" />
-                    Download to OPFS
+                    Download.
                   </>
                 )}
               </Button>
@@ -189,9 +189,9 @@ function App() {
               {tracks.map((track, index) => (
                 <div key={track.id} className="flex items-center justify-between p-3 rounded-lg border bg-card text-card-foreground shadow-sm group">
                   <div className="flex items-center space-x-3 overflow-hidden">
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       className="bg-primary/10 hover:bg-primary/20 p-2 rounded-full flex-shrink-0"
                       onClick={() => setCurrentTrackIndex(index)}
                     >
@@ -208,9 +208,9 @@ function App() {
                       <p className="text-xs text-muted-foreground">{new Date(track.addedAt).toLocaleDateString()}</p>
                     </div>
                   </div>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={() => track.id && handleDelete(track.id, track.opfsFileName)}
                   >
@@ -226,8 +226,8 @@ function App() {
 
       {/* Global Audio Player */}
       {currentTrackIndex !== null && tracks && tracks[currentTrackIndex] && (
-        <AudioPlayer 
-          track={tracks[currentTrackIndex]} 
+        <AudioPlayer
+          track={tracks[currentTrackIndex]}
           onNext={handleNext}
           onPrevious={handlePrevious}
         />
