@@ -103,14 +103,29 @@ async def get_formats(request: DownloadRequest):
         'js_runtimes': {'node': {}},
         'quiet': True,
         'no_warnings': True,
+        'ignoreerrors': True,
     }
 
+    # Debug info to pass back to the client
+    cookie_status = "Not Found"
+
     if os.path.exists(cookie_path):
-        ydl_opts['cookiefile'] = cookie_path
+        if os.path.isfile(cookie_path):
+            ydl_opts['cookiefile'] = cookie_path
+            cookie_status = f"File found and used at {cookie_path}"
+        elif os.path.isdir(cookie_path):
+            cookie_status = f"ERROR: Path {cookie_path} is a directory! Your Docker bind mount is incorrect."
+    else:
+        cookie_status = f"ERROR: Path {cookie_path} does not exist."
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+            # process=False prevents it from throwing the 'Requested format is not available' error
+            info = ydl.extract_info(url, download=False, process=False)
+            
+            if not info:
+                return {"error": "yt-dlp returned None. Likely blocked.", "cookie_status": cookie_status}
+                
             formats = info.get('formats', [])
             
             simplified_formats = []
@@ -125,10 +140,15 @@ async def get_formats(request: DownloadRequest):
                     'format_note': f.get('format_note')
                 })
             
-            return {"formats": simplified_formats}
+            return {
+                "cookie_status": cookie_status,
+                "total_formats_found": len(simplified_formats),
+                "formats": simplified_formats,
+                "raw_info_keys": list(info.keys())
+            }
             
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"{str(e)} | Cookie status: {cookie_status}")
 
 # Serve the static files from the React build
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
