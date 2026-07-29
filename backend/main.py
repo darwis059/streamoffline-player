@@ -31,7 +31,8 @@ async def download_audio(request: DownloadRequest):
     # yt-dlp configuration to download best audio, convert to 192kbps MP3,
     # apply loudnorm filter, and embed ID3 tags/thumbnail
     ydl_opts = {
-        'format': 'bestaudio/best',
+        'format': 'bestaudio[ext=m4a]/bestaudio/best',
+        'extractor_args': {'youtube': ['player_client=android']},
         'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
         'postprocessors': [
             {
