@@ -91,6 +91,45 @@ async def download_audio(request: DownloadRequest):
 def health_check():
     return {"status": "ok"}
 
+@app.post("/api/formats")
+async def get_formats(request: DownloadRequest):
+    url = request.url
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+
+    cookie_path = os.environ.get('YT_DLP_COOKIES', '/app/cookies.txt')
+    
+    ydl_opts = {
+        'js_runtimes': {'node': {}},
+        'quiet': True,
+        'no_warnings': True,
+    }
+
+    if os.path.exists(cookie_path):
+        ydl_opts['cookiefile'] = cookie_path
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            formats = info.get('formats', [])
+            
+            simplified_formats = []
+            for f in formats:
+                simplified_formats.append({
+                    'format_id': f.get('format_id'),
+                    'ext': f.get('ext'),
+                    'resolution': f.get('resolution', 'audio only' if f.get('vcodec') == 'none' else 'unknown'),
+                    'vcodec': f.get('vcodec'),
+                    'acodec': f.get('acodec'),
+                    'filesize': f.get('filesize'),
+                    'format_note': f.get('format_note')
+                })
+            
+            return {"formats": simplified_formats}
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Serve the static files from the React build
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 
