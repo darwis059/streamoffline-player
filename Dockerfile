@@ -12,7 +12,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Serve via FastAPI and install dependencies
-FROM python:3.11-slim AS backend
+FROM python:3.11-slim-bullseye AS backend
 
 WORKDIR /app
 
