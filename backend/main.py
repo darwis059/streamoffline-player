@@ -49,9 +49,9 @@ async def download_audio(request: DownloadRequest):
                 'already_have_thumbnail': False,
             }
         ],
-        'postprocessor_args': [
-            '-af', 'loudnorm'
-        ],
+        'postprocessor_args': {
+            'ExtractAudio': ['-af', 'loudnorm']
+        },
         'writethumbnail': True,
         'quiet': not is_verbose,
         'no_warnings': not is_verbose,
