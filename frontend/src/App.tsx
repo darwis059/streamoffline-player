@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { saveToOPFS } from '@/lib/storage'
+import { saveToOPFS, deleteFromOPFS } from '@/lib/storage'
 import { db } from '@/lib/db'
 import { Download, Search, CheckCircle, Loader2, Music, Trash2 } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
@@ -92,9 +92,10 @@ function App() {
 
   const handleDelete = async (id: number, filename: string) => {
     try {
-      // First delete from DB
+      // Delete from IndexedDB
       await db.tracks.delete(id)
-      // Note: OPFS deletion logic can go here later using storage.ts deleteFromOPFS
+      // Delete the actual MP3 file from OPFS
+      await deleteFromOPFS(filename)
     } catch (e) {
       console.error('Failed to delete track', e)
     }
