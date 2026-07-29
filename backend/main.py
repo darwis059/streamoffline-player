@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 import os
@@ -9,6 +10,16 @@ import tempfile
 import yt_dlp
 
 app = FastAPI(title="StreamOffline Player API")
+
+# Allow the frontend to access headers during local dev cross-origin requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition", "X-Track-Title"],
+)
 
 class DownloadRequest(BaseModel):
     url: str
@@ -83,6 +94,7 @@ async def download_audio(request: DownloadRequest):
                 path=mp3_file, 
                 media_type='audio/mpeg', 
                 filename=f"{safe_title}.mp3",
+                headers={"X-Track-Title": safe_title},
                 background=BackgroundTask(cleanup_temp_dir, temp_dir)
             )
             
