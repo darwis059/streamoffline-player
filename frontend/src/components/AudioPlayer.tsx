@@ -3,7 +3,7 @@ import { Play, Pause, SkipBack, SkipForward } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { getOpfsAudioUrl } from '@/lib/storage'
-import { Track } from '@/lib/db'
+import type { Track } from '@/lib/db'
 
 interface AudioPlayerProps {
   track: Track
