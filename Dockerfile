@@ -17,8 +17,10 @@ FROM python:3.11-slim AS backend
 WORKDIR /app
 
 # Install system dependencies (ffmpeg is required for yt-dlp audio conversion and loudnorm filter)
+# nodejs is required by yt-dlp to solve YouTube's JavaScript bot challenges (EJS)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy backend requirements and install Python dependencies

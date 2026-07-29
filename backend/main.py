@@ -32,7 +32,7 @@ async def download_audio(request: DownloadRequest):
     # apply loudnorm filter, and embed ID3 tags/thumbnail
     ydl_opts = {
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
-        'extractor_args': {'youtube': ['player_client=android']},
+        'js_runtimes': ['node'],
         'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
         'postprocessors': [
             {
