@@ -8,6 +8,12 @@ import os
 import shutil
 import tempfile
 import yt_dlp
+import urllib.request
+import urllib.parse
+import json
+import re
+from mutagen.easyid3 import EasyID3
+from mutagen.id3 import ID3NoHeaderError
 
 app = FastAPI(title="StreamOffline Player API")
 
@@ -28,6 +34,47 @@ def cleanup_temp_dir(temp_dir: str):
     """Deletes the temporary directory after the file is streamed."""
     if os.path.exists(temp_dir):
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+def fetch_musicbrainz(query: str):
+    try:
+        clean_query = re.sub(r'\[.*?\]|\(.*?\)', '', query)
+        clean_query = re.sub(r'(?i)official video|lyrics|audio|music video', '', clean_query)
+        clean_query = clean_query.strip()
+        
+        parts = clean_query.split('-')
+        if len(parts) == 2:
+            artist = parts[0].strip()
+            recording = parts[1].strip()
+            mb_query = f'artist:"{artist}" AND recording:"{recording}"'
+        else:
+            mb_query = clean_query
+            
+        url = f"https://musicbrainz.org/ws/2/recording/?query={urllib.parse.quote(mb_query)}&fmt=json"
+        
+        req = urllib.request.Request(
+            url, 
+            headers={'User-Agent': 'StreamOfflinePlayer/1.0 ( my@email.com )'}
+        )
+        
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            if data.get('recordings') and len(data['recordings']) > 0:
+                best_match = data['recordings'][0]
+                
+                title = best_match.get('title')
+                artist_name = best_match.get('artist-credit', [{}])[0].get('name') if best_match.get('artist-credit') else None
+                album = None
+                if best_match.get('releases') and len(best_match['releases']) > 0:
+                    album = best_match['releases'][0].get('title')
+                
+                return {
+                    'title': title,
+                    'artist': artist_name,
+                    'album': album
+                }
+    except Exception as e:
+        print(f"MusicBrainz API error: {e}")
+    return None
 
 @app.post("/api/download")
 async def download_audio(request: DownloadRequest):
@@ -88,13 +135,38 @@ async def download_audio(request: DownloadRequest):
             if not mp3_file:
                 raise HTTPException(status_code=500, detail="Failed to convert audio to MP3")
             
-            safe_title = info.get('title', 'audio').replace('/', '_').replace('\\', '_')
+            raw_title = info.get('title', 'audio')
+            safe_title = raw_title.replace('/', '_').replace('\\', '_')
+
+            # Fetch metadata from MusicBrainz and embed it
+            mb_data = fetch_musicbrainz(raw_title)
+            if mb_data:
+                try:
+                    try:
+                        audio_tags = EasyID3(mp3_file)
+                    except ID3NoHeaderError:
+                        audio_tags = EasyID3()
+                    
+                    if mb_data['title']:
+                        audio_tags['title'] = mb_data['title']
+                        # Also update safe_title so the downloaded file name looks clean
+                        safe_title = mb_data['title'].replace('/', '_').replace('\\', '_')
+                    if mb_data['artist']:
+                        audio_tags['artist'] = mb_data['artist']
+                        if mb_data['title']:
+                            safe_title = f"{mb_data['artist']} - {mb_data['title']}".replace('/', '_').replace('\\', '_')
+                    if mb_data['album']:
+                        audio_tags['album'] = mb_data['album']
+                        
+                    audio_tags.save(mp3_file)
+                except Exception as e:
+                    print(f"Failed to embed ID3 tags: {e}")
             
             return FileResponse(
                 path=mp3_file, 
                 media_type='audio/mpeg', 
                 filename=f"{safe_title}.mp3",
-                headers={"X-Track-Title": safe_title},
+                headers={"X-Track-Title": safe_title.encode('latin-1', 'ignore').decode('latin-1')},
                 background=BackgroundTask(cleanup_temp_dir, temp_dir)
             )
             

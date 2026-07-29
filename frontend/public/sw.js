@@ -7,7 +7,6 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Let the browser handle the request normally. 
-  // This satisfies the PWA requirement for a fetch handler.
-  event.respondWith(fetch(event.request));
+  // Empty fetch handler satisfies PWA requirements
+  // but lets the browser handle all network requests natively.
 });
