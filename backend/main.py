@@ -26,6 +26,8 @@ async def download_audio(request: DownloadRequest):
 
     temp_dir = tempfile.mkdtemp()
     
+    cookie_path = os.environ.get('YT_DLP_COOKIES', '/app/cookies.txt')
+    
     # yt-dlp configuration to download best audio, convert to 192kbps MP3,
     # apply loudnorm filter, and embed ID3 tags/thumbnail
     ydl_opts = {
@@ -53,6 +55,9 @@ async def download_audio(request: DownloadRequest):
         'quiet': True,
         'no_warnings': True,
     }
+
+    if os.path.exists(cookie_path):
+        ydl_opts['cookiefile'] = cookie_path
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
