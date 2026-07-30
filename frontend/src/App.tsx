@@ -12,9 +12,10 @@ function App() {
   const [url, setUrl] = useState('')
   const [status, setStatus] = useState<'idle' | 'downloading' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState('')
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null)
 
   // Player state
-  const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(null)
+  const [currentTrackId, setCurrentTrackId] = useState<number | null>(null)
   
   // Library filter state
   const [searchQuery, setSearchQuery] = useState('')
@@ -31,6 +32,7 @@ function App() {
 
     setStatus('downloading')
     setErrorMessage('')
+    setDownloadProgress(null)
 
     try {
       const apiEndpoint = import.meta.env.DEV ? 'http://127.0.0.1:8001/api/download' : '/api/download'
@@ -71,7 +73,28 @@ function App() {
         throw new Error('No response body returned from server.')
       }
 
-      await saveToOPFS(response.body, filename)
+      const contentLength = response.headers.get('Content-Length')
+      const total = parseInt(contentLength || '0', 10)
+      let loaded = 0
+
+      const reader = response.body.getReader()
+      const stream = new ReadableStream({
+        async start(controller) {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            loaded += value.length
+            if (total) {
+              setDownloadProgress((loaded / total) * 100)
+            }
+            controller.enqueue(value)
+          }
+          controller.close()
+          reader.releaseLock()
+        }
+      })
+
+      await saveToOPFS(stream, filename)
 
       await db.tracks.add({
         title,
@@ -116,8 +139,8 @@ function App() {
       await db.tracks.delete(id)
       await deleteFromOPFS(filename)
       // Reset player if currently playing track was deleted
-      if (currentTrackIndex !== null && tracks && tracks[currentTrackIndex]?.id === id) {
-        setCurrentTrackIndex(null)
+      if (currentTrackId === id) {
+        setCurrentTrackId(null)
       }
     } catch (e) {
       console.error('Failed to delete track', e)
@@ -126,21 +149,29 @@ function App() {
 
   // Player controls
   const handleNext = () => {
-    if (tracks && currentTrackIndex !== null) {
-      const nextIndex = (currentTrackIndex + 1) % tracks.length
-      setCurrentTrackIndex(nextIndex)
+    if (tracks && currentTrackId !== null) {
+      const currentIndex = tracks.findIndex(t => t.id === currentTrackId)
+      if (currentIndex !== -1) {
+        const nextIndex = (currentIndex + 1) % tracks.length
+        setCurrentTrackId(tracks[nextIndex].id!)
+      }
     }
   }
 
   const handlePrevious = () => {
-    if (tracks && currentTrackIndex !== null) {
-      const prevIndex = (currentTrackIndex - 1 + tracks.length) % tracks.length
-      setCurrentTrackIndex(prevIndex)
+    if (tracks && currentTrackId !== null) {
+      const currentIndex = tracks.findIndex(t => t.id === currentTrackId)
+      if (currentIndex !== -1) {
+        const prevIndex = (currentIndex - 1 + tracks.length) % tracks.length
+        setCurrentTrackId(tracks[prevIndex].id!)
+      }
     }
   }
 
+  const currentTrack = tracks?.find(t => t.id === currentTrackId)
+
   return (
-    <div className={`min-h-screen bg-background flex flex-col items-center p-4 pt-10 space-y-8 ${currentTrackIndex !== null ? 'pb-[40vh]' : 'pb-20'}`}>
+    <div className={`min-h-screen bg-background flex flex-col items-center p-4 pt-10 space-y-8 ${currentTrackId !== null ? 'pb-[40vh]' : 'pb-20'}`}>
       <div className="w-full max-w-md space-y-8">
 
         <div className="text-center space-y-2">
@@ -166,6 +197,21 @@ function App() {
                   required
                 />
               </div>
+              
+              {status === 'downloading' && (
+                <div className="flex items-center space-x-2 px-1">
+                  <div className="flex-1 h-[1.5px] bg-secondary overflow-hidden rounded-full">
+                    <div 
+                      className="h-full bg-primary transition-all duration-300 ease-out"
+                      style={{ width: `${downloadProgress || (downloadProgress === 0 ? 0 : 10)}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] tabular-nums text-muted-foreground w-8 text-right">
+                    {downloadProgress !== null ? `${Math.round(downloadProgress)}%` : '...'}
+                  </span>
+                </div>
+              )}
+
               <div className="flex space-x-2">
                 <Button
                   type="submit"
@@ -240,8 +286,7 @@ function App() {
           ) : (
             <div className="space-y-2">
               {filteredTracks?.map((track) => {
-                // Find original index for player functionality
-                const originalIndex = tracks.findIndex(t => t.id === track.id)
+                const isPlaying = currentTrackId === track.id
                 
                 return (
                   <div key={track.id} className="flex items-center justify-between p-3 rounded-lg border bg-card text-card-foreground shadow-sm group">
@@ -250,16 +295,16 @@ function App() {
                         variant="ghost"
                         size="icon"
                         className="bg-primary/10 hover:bg-primary/20 p-2 rounded-full flex-shrink-0"
-                        onClick={() => setCurrentTrackIndex(originalIndex)}
+                        onClick={() => setCurrentTrackId(track.id!)}
                       >
-                        {currentTrackIndex === originalIndex ? (
+                        {isPlaying ? (
                           <Music className="h-4 w-4 text-primary animate-pulse" />
                         ) : (
                           <Play className="h-4 w-4 text-primary" />
                         )}
                       </Button>
-                      <div className="truncate cursor-pointer" onClick={() => setCurrentTrackIndex(originalIndex)}>
-                        <p className={`text-sm font-medium truncate ${currentTrackIndex === originalIndex ? 'text-primary' : ''}`}>
+                      <div className="truncate cursor-pointer" onClick={() => setCurrentTrackId(track.id!)}>
+                        <p className={`text-sm font-medium truncate ${isPlaying ? 'text-primary' : ''}`}>
                           {track.title}
                         </p>
                         <p className="text-xs text-muted-foreground">{new Date(track.addedAt).toLocaleDateString()}</p>
@@ -287,9 +332,9 @@ function App() {
       </div>
 
       {/* Global Audio Player */}
-      {currentTrackIndex !== null && tracks && tracks[currentTrackIndex] && (
+      {currentTrackId !== null && currentTrack && (
         <AudioPlayer
-          track={tracks[currentTrackIndex]}
+          track={currentTrack}
           onNext={handleNext}
           onPrevious={handlePrevious}
         />
