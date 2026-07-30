@@ -2,7 +2,7 @@ import requests
 import sys
 import time
 
-video_url = "https://www.youtube.com/watch?v=722d3I_hUB4"  # Me at the zoo (very short video)
+video_url = "https://www.youtube.com/watch?v=VlMEGBsw6j8"  # Me at the zoo (very short video)
 api_url = "http://10.38.2.4:8000/api/download"
 
 print(f"Requesting download for: {video_url}...")

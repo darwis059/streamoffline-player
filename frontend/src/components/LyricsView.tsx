@@ -185,7 +185,7 @@ export function LyricsView({ track, currentTime, isExpanded = true }: LyricsView
     <div className={`w-full relative scroll-smooth ${isExpanded ? 'flex-1 overflow-y-auto px-6 py-24' : 'h-full overflow-hidden px-4 py-[10vh] pointer-events-none'}`}>
       
       {/* Top Controls */}
-      {isExpanded && (
+      {isExpanded ? (
         <div className="fixed top-4 right-4 z-20 flex items-center space-x-2">
           
           {lyricOptions.length > 1 && (
@@ -222,6 +222,18 @@ export function LyricsView({ track, currentTime, isExpanded = true }: LyricsView
           >
             {isSyncMode ? <Check className="h-4 w-4 mr-2" /> : <Clock className="h-4 w-4 mr-2" />}
             {isSyncMode ? 'Cancel Sync' : 'Sync Lyrics'}
+          </Button>
+        </div>
+      ) : (
+        <div className="absolute top-2 right-2 z-20 pointer-events-auto">
+          <Button
+            variant={isSyncMode ? 'default' : 'ghost'}
+            size="icon"
+            onClick={() => setIsSyncMode(!isSyncMode)}
+            className={`h-8 w-8 rounded-full ${isSyncMode ? 'bg-primary text-primary-foreground shadow-md' : 'text-muted-foreground hover:bg-background/50 hover:text-primary'}`}
+            title={isSyncMode ? 'Cancel Sync' : 'Sync Lyrics'}
+          >
+            {isSyncMode ? <Check className="h-4 w-4" /> : <Clock className="h-4 w-4" />}
           </Button>
         </div>
       )}

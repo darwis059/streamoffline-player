@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { saveToOPFS, deleteFromOPFS } from '@/lib/storage'
 import { db } from '@/lib/db'
-import { Download, Search, CheckCircle, Loader2, Music, Trash2, Play } from 'lucide-react'
+import { Download, Search, CheckCircle, Loader2, Music, Trash2, Play, ClipboardPaste } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { AudioPlayer } from '@/components/AudioPlayer'
 
@@ -15,9 +15,15 @@ function App() {
 
   // Player state
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(null)
+  
+  // Library filter state
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Reactively fetch all downloaded tracks from Dexie IndexedDB
   const tracks = useLiveQuery(() => db.tracks.orderBy('addedAt').reverse().toArray())
+  
+  // Filtered tracks
+  const filteredTracks = tracks?.filter(t => t.title.toLowerCase().includes(searchQuery.toLowerCase()))
 
   const handleDownload = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -85,6 +91,26 @@ function App() {
     }
   }
 
+  const handlePasteAndDownload = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (!text || !text.startsWith('http')) {
+        alert('No valid URL found in clipboard.')
+        return
+      }
+      setUrl(text)
+      
+      // Wait for state update to flush
+      setTimeout(() => {
+         const formEvent = new Event('submit', { cancelable: true, bubbles: true });
+         document.getElementById('download-form')?.dispatchEvent(formEvent);
+      }, 50)
+      
+    } catch (e) {
+      alert('Failed to read from clipboard. Please allow clipboard permissions.')
+    }
+  }
+
   const handleDelete = async (id: number, filename: string) => {
     try {
       await db.tracks.delete(id)
@@ -128,7 +154,7 @@ function App() {
             <CardDescription>Paste a YouTube URL to download it to your offline library.</CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleDownload} className="space-y-4">
+            <form id="download-form" onSubmit={handleDownload} className="space-y-4">
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -140,23 +166,34 @@ function App() {
                   required
                 />
               </div>
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={status === 'downloading' || !url}
-              >
-                {status === 'downloading' ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Downloading ...
-                  </>
-                ) : (
-                  <>
-                    <Download className="mr-2 h-4 w-4" />
-                    Download.
-                  </>
-                )}
-              </Button>
+              <div className="flex space-x-2">
+                <Button
+                  type="submit"
+                  className="flex-1"
+                  disabled={status === 'downloading' || !url}
+                >
+                  {status === 'downloading' ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Downloading ...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="mr-2 h-4 w-4" />
+                      Download
+                    </>
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handlePasteAndDownload}
+                  disabled={status === 'downloading'}
+                  title="Paste URL and Download"
+                >
+                  <ClipboardPaste className="h-4 w-4" />
+                </Button>
+              </div>
             </form>
 
             {status === 'error' && (
@@ -175,7 +212,19 @@ function App() {
 
         {/* Library UI Indicator */}
         <div className="space-y-4">
-          <h2 className="text-xl font-semibold tracking-tight">Your Library</h2>
+          <div className="flex flex-col space-y-2 md:flex-row md:items-center md:justify-between md:space-y-0">
+            <h2 className="text-xl font-semibold tracking-tight">Your Library</h2>
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Filter tracks..."
+                className="pl-8 h-9"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
           {tracks === undefined ? (
             <div className="flex justify-center p-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -184,44 +233,53 @@ function App() {
             <div className="text-center p-8 border rounded-lg border-dashed text-muted-foreground">
               No tracks downloaded yet.
             </div>
+          ) : filteredTracks?.length === 0 ? (
+            <div className="text-center p-8 border rounded-lg border-dashed text-muted-foreground">
+              No tracks found matching "{searchQuery}".
+            </div>
           ) : (
             <div className="space-y-2">
-              {tracks.map((track, index) => (
-                <div key={track.id} className="flex items-center justify-between p-3 rounded-lg border bg-card text-card-foreground shadow-sm group">
-                  <div className="flex items-center space-x-3 overflow-hidden">
+              {filteredTracks?.map((track) => {
+                // Find original index for player functionality
+                const originalIndex = tracks.findIndex(t => t.id === track.id)
+                
+                return (
+                  <div key={track.id} className="flex items-center justify-between p-3 rounded-lg border bg-card text-card-foreground shadow-sm group">
+                    <div className="flex items-center space-x-3 overflow-hidden">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="bg-primary/10 hover:bg-primary/20 p-2 rounded-full flex-shrink-0"
+                        onClick={() => setCurrentTrackIndex(originalIndex)}
+                      >
+                        {currentTrackIndex === originalIndex ? (
+                          <Music className="h-4 w-4 text-primary animate-pulse" />
+                        ) : (
+                          <Play className="h-4 w-4 text-primary" />
+                        )}
+                      </Button>
+                      <div className="truncate cursor-pointer" onClick={() => setCurrentTrackIndex(originalIndex)}>
+                        <p className={`text-sm font-medium truncate ${currentTrackIndex === originalIndex ? 'text-primary' : ''}`}>
+                          {track.title}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{new Date(track.addedAt).toLocaleDateString()}</p>
+                      </div>
+                    </div>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="bg-primary/10 hover:bg-primary/20 p-2 rounded-full flex-shrink-0"
-                      onClick={() => setCurrentTrackIndex(index)}
+                      className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => {
+                        if (window.confirm(`Are you sure you want to delete "${track.title}"?`)) {
+                          track.id && handleDelete(track.id, track.opfsFileName)
+                        }
+                      }}
                     >
-                      {currentTrackIndex === index ? (
-                        <Music className="h-4 w-4 text-primary animate-pulse" />
-                      ) : (
-                        <Play className="h-4 w-4 text-primary" />
-                      )}
+                      <Trash2 className="h-4 w-4" />
                     </Button>
-                    <div className="truncate cursor-pointer" onClick={() => setCurrentTrackIndex(index)}>
-                      <p className={`text-sm font-medium truncate ${currentTrackIndex === index ? 'text-primary' : ''}`}>
-                        {track.title}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{new Date(track.addedAt).toLocaleDateString()}</p>
-                    </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => {
-                      if (window.confirm(`Are you sure you want to delete "${track.title}"?`)) {
-                        track.id && handleDelete(track.id, track.opfsFileName)
-                      }
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
