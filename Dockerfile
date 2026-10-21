@@ -12,14 +12,14 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Serve via FastAPI and install dependencies
-FROM python:3.11-slim-bullseye AS backend
+FROM python:3.11-slim-bookworm AS backend
 
 WORKDIR /app
 
 # Install system dependencies (ffmpeg is required for yt-dlp audio conversion and loudnorm filter)
 # nodejs is required by yt-dlp as a fallback for YouTube's JavaScript bot challenges (EJS)
 # curl and unzip are required to install Deno
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     nodejs \
     curl \
