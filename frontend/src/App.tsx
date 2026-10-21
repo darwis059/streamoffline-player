@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { saveToOPFS, deleteFromOPFS } from '@/lib/storage'
 import { db } from '@/lib/db'
-import { Download, Search, CheckCircle, Loader2, Music, Trash2, Play, ClipboardPaste } from 'lucide-react'
+import { Download, Search, CheckCircle, Loader2, Music, Trash2, Play, ClipboardPaste, Shuffle } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { AudioPlayer } from '@/components/AudioPlayer'
 
@@ -16,6 +16,23 @@ function App() {
 
   // Player state
   const [currentTrackId, setCurrentTrackId] = useState<number | null>(null)
+  const [isShuffle, setIsShuffle] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('streamoffline_shuffle') === 'true'
+    } catch {
+      return false
+    }
+  })
+  const [shuffleHistory, setShuffleHistory] = useState<number[]>([])
+  const [historyIndex, setHistoryIndex] = useState<number>(-1)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('streamoffline_shuffle', String(isShuffle))
+    } catch (e) {
+      console.error('Failed to save shuffle setting', e)
+    }
+  }, [isShuffle])
   
   // Library filter state
   const [searchQuery, setSearchQuery] = useState('')
@@ -142,28 +159,115 @@ function App() {
       if (currentTrackId === id) {
         setCurrentTrackId(null)
       }
+      setShuffleHistory(prev => prev.filter(tId => tId !== id))
     } catch (e) {
       console.error('Failed to delete track', e)
     }
   }
 
-  // Player controls
+  // Player controls & Shuffle logic
+  const handlePlayTrack = (trackId: number) => {
+    setCurrentTrackId(trackId)
+    setShuffleHistory(prev => {
+      const nextHistory = historyIndex >= 0 ? prev.slice(0, historyIndex + 1) : []
+      return [...nextHistory, trackId]
+    })
+    setHistoryIndex(prev => (prev >= 0 ? prev + 1 : 0))
+  }
+
+  const handleToggleShuffle = () => {
+    setIsShuffle(prev => !prev)
+  }
+
+  const handleShufflePlay = () => {
+    const pool = (filteredTracks && filteredTracks.length > 0) ? filteredTracks : tracks
+    if (!pool || pool.length === 0) return
+
+    setIsShuffle(true)
+
+    let nextTrack = pool[Math.floor(Math.random() * pool.length)]
+    if (pool.length > 1 && nextTrack.id === currentTrackId) {
+      const candidates = pool.filter(t => t.id !== currentTrackId)
+      nextTrack = candidates[Math.floor(Math.random() * candidates.length)]
+    }
+
+    if (nextTrack?.id) {
+      handlePlayTrack(nextTrack.id)
+    }
+  }
+
   const handleNext = () => {
-    if (tracks && currentTrackId !== null) {
-      const currentIndex = tracks.findIndex(t => t.id === currentTrackId)
-      if (currentIndex !== -1) {
-        const nextIndex = (currentIndex + 1) % tracks.length
-        setCurrentTrackId(tracks[nextIndex].id!)
+    if (!tracks || tracks.length === 0 || currentTrackId === null) return
+
+    if (isShuffle) {
+      // 1. If user previously navigated backward, move forward through existing history
+      if (historyIndex >= 0 && historyIndex < shuffleHistory.length - 1) {
+        const nextId = shuffleHistory[historyIndex + 1]
+        if (tracks.some(t => t.id === nextId)) {
+          setHistoryIndex(historyIndex + 1)
+          setCurrentTrackId(nextId)
+          return
+        }
+      }
+
+      // 2. Otherwise pick a new random track avoiding immediate repeat
+      if (tracks.length > 1) {
+        const recentWindow = shuffleHistory.slice(-Math.min(tracks.length - 1, 10))
+        let candidates = tracks.filter(t => t.id !== currentTrackId && !recentWindow.includes(t.id!))
+        if (candidates.length === 0) {
+          candidates = tracks.filter(t => t.id !== currentTrackId)
+        }
+        const randomTrack = candidates[Math.floor(Math.random() * candidates.length)]
+        if (randomTrack?.id) {
+          handlePlayTrack(randomTrack.id)
+        }
+        return
+      }
+    }
+
+    // Sequential next
+    const currentIndex = tracks.findIndex(t => t.id === currentTrackId)
+    if (currentIndex !== -1) {
+      const nextIndex = (currentIndex + 1) % tracks.length
+      const nextTrack = tracks[nextIndex]
+      if (nextTrack?.id) {
+        handlePlayTrack(nextTrack.id)
       }
     }
   }
 
   const handlePrevious = () => {
-    if (tracks && currentTrackId !== null) {
-      const currentIndex = tracks.findIndex(t => t.id === currentTrackId)
-      if (currentIndex !== -1) {
-        const prevIndex = (currentIndex - 1 + tracks.length) % tracks.length
-        setCurrentTrackId(tracks[prevIndex].id!)
+    if (!tracks || tracks.length === 0 || currentTrackId === null) return
+
+    if (isShuffle) {
+      // 1. If we have backward history, go back to previously played track
+      if (historyIndex > 0) {
+        const prevId = shuffleHistory[historyIndex - 1]
+        if (tracks.some(t => t.id === prevId)) {
+          setHistoryIndex(historyIndex - 1)
+          setCurrentTrackId(prevId)
+          return
+        }
+      }
+
+      // 2. If no history, pick random other track if available
+      const others = tracks.filter(t => t.id !== currentTrackId)
+      if (others.length > 0) {
+        const randomTrack = others[Math.floor(Math.random() * others.length)]
+        if (randomTrack?.id) {
+          handlePlayTrack(randomTrack.id)
+        }
+        return
+      }
+    }
+
+    // Sequential previous
+    const currentIndex = tracks.findIndex(t => t.id === currentTrackId)
+    if (currentIndex !== -1) {
+      const prevIndex = (currentIndex - 1 + tracks.length) % tracks.length
+      const prevTrack = tracks[prevIndex]
+      if (prevTrack?.id) {
+        handlePlayTrack(prevTrack.id)
       }
     }
   }
@@ -258,18 +362,29 @@ function App() {
 
         {/* Library UI Indicator */}
         <div className="space-y-4">
-          <div className="flex flex-col space-y-2 md:flex-row md:items-center md:justify-between md:space-y-0">
+          <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold tracking-tight">Your Library</h2>
-            <div className="relative w-full md:w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                type="search"
-                placeholder="Filter tracks..."
-                className="pl-8 h-9"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
+            <Button
+              variant={isShuffle ? "default" : "outline"}
+              size="sm"
+              onClick={handleShufflePlay}
+              disabled={!tracks || tracks.length === 0}
+              className="h-8 px-3 text-xs font-medium gap-1.5 transition-all shadow-sm"
+              title={tracks && tracks.length > 0 ? (isShuffle ? "Shuffle is ON - play random track" : "Shuffle play library") : "No tracks in library to shuffle"}
+            >
+              <Shuffle className="h-3.5 w-3.5" />
+              <span>Shuffle</span>
+            </Button>
+          </div>
+          <div className="relative w-full">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Filter tracks..."
+              className="pl-8 h-9"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
           {tracks === undefined ? (
             <div className="flex justify-center p-8">
@@ -295,7 +410,7 @@ function App() {
                         variant="ghost"
                         size="icon"
                         className="bg-primary/10 hover:bg-primary/20 p-2 rounded-full flex-shrink-0"
-                        onClick={() => setCurrentTrackId(track.id!)}
+                        onClick={() => handlePlayTrack(track.id!)}
                       >
                         {isPlaying ? (
                           <Music className="h-4 w-4 text-primary animate-pulse" />
@@ -303,7 +418,7 @@ function App() {
                           <Play className="h-4 w-4 text-primary" />
                         )}
                       </Button>
-                      <div className="truncate cursor-pointer" onClick={() => setCurrentTrackId(track.id!)}>
+                      <div className="truncate cursor-pointer" onClick={() => handlePlayTrack(track.id!)}>
                         <p className={`text-sm font-medium truncate ${isPlaying ? 'text-primary' : ''}`}>
                           {track.title}
                         </p>
@@ -337,6 +452,8 @@ function App() {
           track={currentTrack}
           onNext={handleNext}
           onPrevious={handlePrevious}
+          isShuffle={isShuffle}
+          onToggleShuffle={handleToggleShuffle}
         />
       )}
     </div>

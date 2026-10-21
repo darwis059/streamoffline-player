@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Play, Pause, SkipBack, SkipForward, ChevronUp, ChevronDown } from 'lucide-react'
+import { Play, Pause, SkipBack, SkipForward, ChevronUp, ChevronDown, Shuffle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { getOpfsAudioUrl } from '@/lib/storage'
@@ -10,9 +10,11 @@ interface AudioPlayerProps {
   track: Track
   onNext: () => void
   onPrevious: () => void
+  isShuffle?: boolean
+  onToggleShuffle?: () => void
 }
 
-export function AudioPlayer({ track, onNext, onPrevious }: AudioPlayerProps) {
+export function AudioPlayer({ track, onNext, onPrevious, isShuffle = false, onToggleShuffle }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [duration, setDuration] = useState(0)
@@ -205,7 +207,25 @@ export function AudioPlayer({ track, onNext, onPrevious }: AudioPlayerProps) {
         </div>
 
         {/* Controls */}
-        <div className="flex justify-center items-center space-x-6 pb-2">
+        <div className="flex justify-center items-center space-x-4 sm:space-x-6 pb-2">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={onToggleShuffle} 
+            className={`relative transition-colors ${
+              isShuffle 
+                ? 'text-primary bg-primary/10 hover:bg-primary/20 hover:text-primary' 
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            title={isShuffle ? "Shuffle is ON" : "Shuffle is OFF"}
+            aria-label={isShuffle ? "Disable shuffle" : "Enable shuffle"}
+          >
+            <Shuffle className="h-5 w-5" />
+            {isShuffle && (
+              <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-primary rounded-full" />
+            )}
+          </Button>
+
           <Button variant="ghost" size="icon" onClick={onPrevious} className="hover:text-primary transition-colors">
             <SkipBack className="h-6 w-6 fill-current" />
           </Button>
@@ -226,6 +246,9 @@ export function AudioPlayer({ track, onNext, onPrevious }: AudioPlayerProps) {
           <Button variant="ghost" size="icon" onClick={onNext} className="hover:text-primary transition-colors">
             <SkipForward className="h-6 w-6 fill-current" />
           </Button>
+
+          {/* Symmetrical placeholder to keep Play/Pause centered */}
+          <div className="w-9 h-9 invisible pointer-events-none" aria-hidden="true" />
         </div>
 
       </div>
