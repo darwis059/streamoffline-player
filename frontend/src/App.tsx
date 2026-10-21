@@ -8,6 +8,15 @@ import { Download, Search, CheckCircle, Loader2, Music, Trash2, Play, ClipboardP
 import { useLiveQuery } from 'dexie-react-hooks'
 import { AudioPlayer } from '@/components/AudioPlayer'
 
+function shuffleArray<T>(array: T[]): T[] {
+  const arr = [...array]
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+  return arr
+}
+
 function App() {
   const [url, setUrl] = useState('')
   const [status, setStatus] = useState<'idle' | 'downloading' | 'success' | 'error'>('idle')
@@ -23,8 +32,8 @@ function App() {
       return false
     }
   })
-  const [shuffleHistory, setShuffleHistory] = useState<number[]>([])
-  const [historyIndex, setHistoryIndex] = useState<number>(-1)
+  const [shuffledQueue, setShuffledQueue] = useState<number[]>([])
+  const [queueIndex, setQueueIndex] = useState<number>(0)
 
   useEffect(() => {
     try {
@@ -155,11 +164,10 @@ function App() {
     try {
       await db.tracks.delete(id)
       await deleteFromOPFS(filename)
-      // Reset player if currently playing track was deleted
       if (currentTrackId === id) {
         setCurrentTrackId(null)
       }
-      setShuffleHistory(prev => prev.filter(tId => tId !== id))
+      setShuffledQueue(prev => prev.filter(tId => tId !== id))
     } catch (e) {
       console.error('Failed to delete track', e)
     }
@@ -168,60 +176,91 @@ function App() {
   // Player controls & Shuffle logic
   const handlePlayTrack = (trackId: number) => {
     setCurrentTrackId(trackId)
-    setShuffleHistory(prev => {
-      const nextHistory = historyIndex >= 0 ? prev.slice(0, historyIndex + 1) : []
-      return [...nextHistory, trackId]
-    })
-    setHistoryIndex(prev => (prev >= 0 ? prev + 1 : 0))
+    if (isShuffle && tracks && tracks.length > 0) {
+      const others = tracks.filter(t => t.id !== trackId).map(t => t.id!)
+      setShuffledQueue([trackId, ...shuffleArray(others)])
+      setQueueIndex(0)
+    }
   }
 
   const handleToggleShuffle = () => {
-    setIsShuffle(prev => !prev)
+    setIsShuffle(prev => {
+      const nextState = !prev
+      if (nextState && tracks && tracks.length > 0) {
+        // When enabling shuffle from player control, freshly randomize the upcoming queue
+        if (currentTrackId !== null) {
+          const others = tracks.filter(t => t.id !== currentTrackId).map(t => t.id!)
+          setShuffledQueue([currentTrackId, ...shuffleArray(others)])
+          setQueueIndex(0)
+        } else {
+          const shuffled = shuffleArray(tracks.map(t => t.id!))
+          setShuffledQueue(shuffled)
+          setQueueIndex(0)
+        }
+      }
+      return nextState
+    })
   }
 
   const handleShufflePlay = () => {
     const pool = (filteredTracks && filteredTracks.length > 0) ? filteredTracks : tracks
     if (!pool || pool.length === 0) return
 
+    const poolIds = pool.map(t => t.id!)
+    let shuffled = shuffleArray(poolIds)
+
+    // If more than 1 track and the random first track happens to be currentTrackId, swap it
+    if (shuffled.length > 1 && shuffled[0] === currentTrackId) {
+      const swapIdx = Math.floor(Math.random() * (shuffled.length - 1)) + 1
+      ;[shuffled[0], shuffled[swapIdx]] = [shuffled[swapIdx], shuffled[0]]
+    }
+
     setIsShuffle(true)
-
-    let nextTrack = pool[Math.floor(Math.random() * pool.length)]
-    if (pool.length > 1 && nextTrack.id === currentTrackId) {
-      const candidates = pool.filter(t => t.id !== currentTrackId)
-      nextTrack = candidates[Math.floor(Math.random() * candidates.length)]
-    }
-
-    if (nextTrack?.id) {
-      handlePlayTrack(nextTrack.id)
-    }
+    setShuffledQueue(shuffled)
+    setQueueIndex(0)
+    setCurrentTrackId(shuffled[0])
   }
 
   const handleNext = () => {
     if (!tracks || tracks.length === 0 || currentTrackId === null) return
 
     if (isShuffle) {
-      // 1. If user previously navigated backward, move forward through existing history
-      if (historyIndex >= 0 && historyIndex < shuffleHistory.length - 1) {
-        const nextId = shuffleHistory[historyIndex + 1]
-        if (tracks.some(t => t.id === nextId)) {
-          setHistoryIndex(historyIndex + 1)
-          setCurrentTrackId(nextId)
-          return
-        }
+      let queue = shuffledQueue
+      let currentIdx = queueIndex
+
+      // If queue is invalid or empty or out of sync with currentTrackId, re-initialize
+      if (queue.length <= 1 || queue[currentIdx] !== currentTrackId) {
+        const others = tracks.filter(t => t.id !== currentTrackId).map(t => t.id!)
+        queue = [currentTrackId, ...shuffleArray(others)]
+        currentIdx = 0
+        setShuffledQueue(queue)
       }
 
-      // 2. Otherwise pick a new random track avoiding immediate repeat
-      if (tracks.length > 1) {
-        const recentWindow = shuffleHistory.slice(-Math.min(tracks.length - 1, 10))
-        let candidates = tracks.filter(t => t.id !== currentTrackId && !recentWindow.includes(t.id!))
-        if (candidates.length === 0) {
-          candidates = tracks.filter(t => t.id !== currentTrackId)
+      if (queue.length > 1) {
+        let nextIdx = currentIdx + 1
+        // End of shuffled queue reached: reshuffle
+        if (nextIdx >= queue.length) {
+          const allIds = tracks.map(t => t.id!)
+          let reshuffled = shuffleArray(allIds)
+          if (reshuffled.length > 1 && reshuffled[0] === currentTrackId) {
+            const swapIdx = Math.floor(Math.random() * (reshuffled.length - 1)) + 1
+            ;[reshuffled[0], reshuffled[swapIdx]] = [reshuffled[swapIdx], reshuffled[0]]
+          }
+          queue = reshuffled
+          nextIdx = 0
+          setShuffledQueue(queue)
         }
-        const randomTrack = candidates[Math.floor(Math.random() * candidates.length)]
-        if (randomTrack?.id) {
-          handlePlayTrack(randomTrack.id)
+
+        // Skip any tracks that might have been deleted from DB
+        while (nextIdx < queue.length && !tracks.some(t => t.id === queue[nextIdx])) {
+          nextIdx++
         }
-        return
+
+        if (nextIdx < queue.length) {
+          setQueueIndex(nextIdx)
+          setCurrentTrackId(queue[nextIdx])
+          return
+        }
       }
     }
 
@@ -231,7 +270,7 @@ function App() {
       const nextIndex = (currentIndex + 1) % tracks.length
       const nextTrack = tracks[nextIndex]
       if (nextTrack?.id) {
-        handlePlayTrack(nextTrack.id)
+        setCurrentTrackId(nextTrack.id)
       }
     }
   }
@@ -240,24 +279,16 @@ function App() {
     if (!tracks || tracks.length === 0 || currentTrackId === null) return
 
     if (isShuffle) {
-      // 1. If we have backward history, go back to previously played track
-      if (historyIndex > 0) {
-        const prevId = shuffleHistory[historyIndex - 1]
-        if (tracks.some(t => t.id === prevId)) {
-          setHistoryIndex(historyIndex - 1)
-          setCurrentTrackId(prevId)
+      if (shuffledQueue.length > 1 && queueIndex > 0) {
+        let prevIdx = queueIndex - 1
+        while (prevIdx >= 0 && !tracks.some(t => t.id === shuffledQueue[prevIdx])) {
+          prevIdx--
+        }
+        if (prevIdx >= 0) {
+          setQueueIndex(prevIdx)
+          setCurrentTrackId(shuffledQueue[prevIdx])
           return
         }
-      }
-
-      // 2. If no history, pick random other track if available
-      const others = tracks.filter(t => t.id !== currentTrackId)
-      if (others.length > 0) {
-        const randomTrack = others[Math.floor(Math.random() * others.length)]
-        if (randomTrack?.id) {
-          handlePlayTrack(randomTrack.id)
-        }
-        return
       }
     }
 
@@ -267,7 +298,7 @@ function App() {
       const prevIndex = (currentIndex - 1 + tracks.length) % tracks.length
       const prevTrack = tracks[prevIndex]
       if (prevTrack?.id) {
-        handlePlayTrack(prevTrack.id)
+        setCurrentTrackId(prevTrack.id)
       }
     }
   }
